@@ -1,5 +1,5 @@
 # mFTP Server
-
+![mFTP](app.png)
 ## Giới thiệu
 
 mFTP Server là một ứng dụng máy chủ FTP đơn giản và nhẹ, được thiết kế để dễ dàng chia sẻ tệp tin trên mạng cục bộ của bạn. Ứng dụng này chạy ngầm trong khay hệ thống và cung cấp giao diện cấu hình thân thiện.
@@ -16,7 +16,7 @@ mFTP Server là một ứng dụng máy chủ FTP đơn giản và nhẹ, đư�
 
 Để cài đặt mFTP Server, hãy làm theo các bước sau:
 
-1.  **Tải xuống:** Tải xuống tệp `mFTP Server Setup.exe` từ [liên kết tải xuống của bạn].
+1.  **Tải xuống:** Tải xuống tệp `mFTP Server Setup.exe` từ [https://github.com/caophuocdanh/mFTP-Server/releases/download/v1.0/mFTP.Setup.exe].
 2.  **Chạy trình cài đặt:** Chạy tệp `mFTP Server Setup.exe` với quyền quản trị.
     *   Trình cài đặt sẽ hướng dẫn bạn qua quá trình cài đặt.
     *   Nó sẽ tạo các thư mục cần thiết, sao chép tệp ứng dụng và thiết lập tác vụ lên lịch để ứng dụng tự động khởi động khi đăng nhập.

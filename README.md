@@ -1,6 +1,6 @@
 # mFTP Server
 <p align="center">
-  <img src="app.png" alt="mFTP" width="200">
+  <img src="app.png" alt="mFTP" width="400">
 </p>
 
 ## 🧭 Giới thiệu

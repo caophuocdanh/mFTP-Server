@@ -3,210 +3,247 @@ import sys
 import shutil
 import subprocess
 import winreg
-import time
-from colorama import Fore, Style, init # Added for colored output
+import ctypes
+import threading
+import tkinter as tk
+from tkinter import scrolledtext, messagebox, ttk
 
-init() # Initialize Colorama
-
+# --- CẤU HÌNH ---
 APP_NAME = "mFTP Server"
+VERSION = "2.0"
+AUTHOR = "@danhcp"
 EXE_NAME = "mFTP.exe"
 INSTALL_DIR = os.path.join(os.environ["ProgramFiles"], "mFTP")
-SCHEDULED_TASK_NAME = "mFTP_Server_Startup"
+CONFIG_DIR = os.path.join(os.environ.get('PROGRAMDATA', 'C:/ProgramData'), 'mFTP')
+SCAN_DIR = "C:\\SCAN"
+REG_PATH = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+REG_NAME = "mFTP_Server"
 
-# Helper functions for console output formatting
-def print_separator(char='-', length=60, color=Style.RESET_ALL):
-    print(f"{color}{char * length}{Style.RESET_ALL}")
-
-def print_title(title, length=60, color=Fore.CYAN):
-    padding = (length - len(title) - 2) // 2
-    print_separator(color=color)
-    print(f"{color}|{' ' * padding}{title}{' ' * (length - len(title) - 2 - padding)}|{Style.RESET_ALL}")
-    print_separator(color=color)
-
-def print_message(message, indent=0, color=Style.RESET_ALL):
-    print(f"{' ' * indent}{color}{message}{Style.RESET_ALL}")
-
+# --- HÀM HỆ THỐNG CƠ BẢN ---
 def is_admin():
     try:
-        return os.getuid() == 0
-    except AttributeError:
-        import ctypes
         return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
 
-def run_as_admin(script_path, args):
-    if not is_admin():
-        import ctypes
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script_path}" {args}', None, 1)
-        sys.exit(0)
+def run_as_admin():
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, ' '.join(sys.argv), None, 1)
+    sys.exit(0)
 
-def install_app():
-    print_title(f"CÀI ĐẶT / CẬP NHẬT {APP_NAME.upper()}", color=Fore.CYAN)
-
-    if not is_admin():
-        print_message("Cần quyền quản trị để cài đặt. Đang khởi động lại với quyền quản trị...", indent=4, color=Fore.YELLOW)
-        run_as_admin(sys.argv[0], "install")
-        return
-
-    print_message(f"Đang cố gắng dừng các tiến trình {EXE_NAME} đang chạy...", indent=4, color=Fore.WHITE)
-    try:
-        subprocess.run(['taskkill', '/f', '/im', EXE_NAME], capture_output=True)
-        print_message(f"  - Đã cố gắng dừng {EXE_NAME}.", indent=4, color=Fore.GREEN)
-        time.sleep(2) # Add a small delay to ensure process terminates
-    except Exception as e:
-        print_message(f"  - Không thể dừng {EXE_NAME}: {e}", indent=4, color=Fore.YELLOW)
-
-    print_message(f"Kiểm tra và tạo thư mục cài đặt:", indent=4, color=Fore.WHITE)
-    if not os.path.exists(INSTALL_DIR):
-        os.makedirs(INSTALL_DIR)
-        print_message(f"  - Đã tạo thư mục: {INSTALL_DIR}", indent=4, color=Fore.GREEN)
-    else:
-        print_message(f"  - Thư mục cài đặt đã tồn tại: {INSTALL_DIR}", indent=4, color=Fore.WHITE)
-
-    SCAN_DIR = "C:\\SCAN"
-    print_message(f"Kiểm tra và tạo thư mục SCAN:", indent=4, color=Fore.WHITE)
-    if not os.path.exists(SCAN_DIR):
+# --- GIAO DIỆN CÀI ĐẶT ---
+class InstallerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title(f"Setup {APP_NAME} v{VERSION}")
+        self.root.geometry("480x340") # Tăng nhẹ chiều cao để chứa footer
+        self.root.resizable(False, False)
+        
         try:
-            os.makedirs(SCAN_DIR)
-            print_message(f"  - Đã tạo thư mục: {SCAN_DIR}", indent=4, color=Fore.GREEN)
-        except OSError as e:
-            print_message(f"  - Lỗi khi tạo thư mục {SCAN_DIR}: {e}", indent=4, color=Fore.RED)
-            print_message(f"  - Vui lòng đảm bảo bạn có quyền tạo thư mục tại {SCAN_DIR}.", indent=4, color=Fore.YELLOW)
-            return
-    else:
-        print_message(f"  - Thư mục SCAN đã tồn tại: {SCAN_DIR}", indent=4, color=Fore.WHITE)
+            if getattr(sys, 'frozen', False):
+                icon_path = os.path.join(sys._MEIPASS, "icon.ico")
+            else:
+                icon_path = "icon.ico"
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except: pass
 
-    destination_exe_path = os.path.join(INSTALL_DIR, EXE_NAME)
+        self.setup_ui()
+        self.check_status()
 
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        bundled_mftp_exe_path = os.path.join(sys._MEIPASS, EXE_NAME)
-    else:
-        bundled_mftp_exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), EXE_NAME)
+    def setup_ui(self):
+        # 1. Header
+        header_frame = tk.Frame(self.root, bg="#2c3e50", height=45)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        
+        # Tiêu đề kèm Version
+        lbl_title = tk.Label(header_frame, text=f"CÀI ĐẶT {APP_NAME.upper()} v{VERSION}", 
+                             fg="white", bg="#2c3e50", font=("Segoe UI", 12, "bold"))
+        lbl_title.pack(expand=True)
 
-    if not os.path.exists(bundled_mftp_exe_path):
-        print_message(f"Lỗi: Không tìm thấy {EXE_NAME} trong gói cài đặt hoặc thư mục hiện tại.", indent=4, color=Fore.RED)
-        return
+        # 2. Status
+        status_frame = tk.Frame(self.root, pady=5)
+        status_frame.pack(fill=tk.X)
+        
+        self.lbl_status_key = tk.Label(status_frame, text="Trạng thái hệ thống:", font=("Segoe UI", 9))
+        self.lbl_status_key.pack(side=tk.LEFT, padx=(15, 5))
+        
+        self.lbl_status_val = tk.Label(status_frame, text="Kiểm tra...", font=("Segoe UI", 9, "bold"))
+        self.lbl_status_val.pack(side=tk.LEFT)
 
-    print_message(f"Sao chép {EXE_NAME} đến thư mục cài đặt...", indent=4, color=Fore.WHITE)
-    shutil.copy2(bundled_mftp_exe_path, destination_exe_path)
-    print_message(f"  - Đã sao chép {EXE_NAME} đến {INSTALL_DIR}", indent=4, color=Fore.GREEN)
+        # 3. Log Area
+        self.log_area = scrolledtext.ScrolledText(self.root, state='disabled', height=8, font=("Consolas", 8))
+        self.log_area.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        
+        self.log_area.tag_config("INFO", foreground="black")
+        self.log_area.tag_config("SUCCESS", foreground="green")
+        self.log_area.tag_config("ERROR", foreground="red")
+        self.log_area.tag_config("WARN", foreground="#d35400")
 
-    print_message(f"Thiết lập tác vụ lên lịch...", indent=4, color=Fore.WHITE)
-    try:
-        subprocess.run(['schtasks', '/delete', '/tn', SCHEDULED_TASK_NAME, '/f'], capture_output=True)
-        schtasks_cmd = [
-            'schtasks', '/create', '/tn', SCHEDULED_TASK_NAME,
-            '/tr', f'"{destination_exe_path}"', # Explicitly add quotes for schtasks
-            '/sc', 'ONLOGON', '/rl', 'HIGHEST', '/f'
-        ]
-        subprocess.run(schtasks_cmd, check=True, capture_output=True)
-        print_message(f"  - Đã tạo tác vụ '{SCHEDULED_TASK_NAME}' để chạy khi đăng nhập.", indent=4, color=Fore.GREEN)
-        subprocess.run(['schtasks', '/run', '/tn', SCHEDULED_TASK_NAME], check=True, capture_output=True)
-        print_message(f"  - Đã chạy tác vụ '{SCHEDULED_TASK_NAME}' ngay lập tức.", indent=4, color=Fore.GREEN)
-    except subprocess.CalledProcessError as e:
-        print_message(f"  - Lỗi khi tạo tác vụ: {e}", indent=4, color=Fore.RED)
-        print_message(f"  - Stdout: {e.stdout.decode()}", indent=4, color=Fore.RED)
-        print_message(f"  - Stderr: {e.stderr.decode()}", indent=4, color=Fore.RED)
-        print_message(f"  - Vui lòng đảm bảo bạn chạy trình cài đặt với quyền quản trị.", indent=4, color=Fore.YELLOW)
-        shutil.rmtree(INSTALL_DIR)
-        return
+        # 4. Buttons
+        btn_frame = tk.Frame(self.root, pady=5)
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=10)
+        btn_frame.columnconfigure(0, weight=1)
+        btn_frame.columnconfigure(1, weight=1)
+        btn_frame.columnconfigure(2, weight=1)
 
-    print_separator(color=Fore.GREEN)
-    print_message(f"Cài đặt {APP_NAME} hoàn tất!", indent=4, color=Fore.GREEN)
-    print_separator(color=Fore.GREEN)
+        self.btn_install = ttk.Button(btn_frame, text="Cài đặt", command=self.start_install_thread)
+        self.btn_install.grid(row=0, column=0, sticky="ew", padx=2)
 
-def uninstall_app():
-    print_title(f"GỠ CÀI ĐẶT {APP_NAME.upper()}", color=Fore.CYAN)
+        self.btn_uninstall = ttk.Button(btn_frame, text="Gỡ bỏ", command=self.start_uninstall_thread)
+        self.btn_uninstall.grid(row=0, column=1, sticky="ew", padx=2)
 
-    if not is_admin():
-        print_message("Cần quyền quản trị để gỡ cài đặt. Đang khởi động lại với quyền quản trị...", indent=4, color=Fore.YELLOW)
-        run_as_admin(sys.argv[0], "uninstall")
-        return
+        self.btn_exit = ttk.Button(btn_frame, text="Thoát", command=self.root.quit)
+        self.btn_exit.grid(row=0, column=2, sticky="ew", padx=2)
 
-    print_message(f"Đang cố gắng dừng tiến trình {EXE_NAME}...", indent=4, color=Fore.WHITE)
-    try:
-        subprocess.run(['taskkill', '/f', '/im', EXE_NAME], capture_output=True)
-        print_message(f"  - Đã cố gắng dừng {EXE_NAME}.", indent=4, color=Fore.GREEN)
-        time.sleep(2) # Add a small delay to ensure process terminates
-    except Exception as e:
-        print_message(f"  - Không thể dừng {EXE_NAME}: {e}", indent=4, color=Fore.YELLOW)
+        # 5. Footer Credit
+        lbl_credit = tk.Label(self.root, text=f"Developed by {AUTHOR}", fg="gray", font=("Arial", 7))
+        lbl_credit.pack(side=tk.BOTTOM, pady=(0, 5))
 
-    print_message(f"Đang xóa tác vụ lên lịch...", indent=4, color=Fore.WHITE)
-    try:
-        result = subprocess.run(['schtasks', '/delete', '/tn', SCHEDULED_TASK_NAME, '/f'], capture_output=True, text=True)
-        if result.returncode == 0:
-            print_message(f"  - Đã xóa tác vụ '{SCHEDULED_TASK_NAME}'.", indent=4, color=Fore.GREEN)
-        elif result.returncode == 1 and "ERROR: The specified task name \"mFTP_Server_Startup\" does not exist." in result.stderr:
-            print_message(f"  - Tác vụ '{SCHEDULED_TASK_NAME}' không tồn tại. Không cần xóa.", indent=4, color=Fore.YELLOW)
+    def check_status(self):
+        exe_path = os.path.join(INSTALL_DIR, EXE_NAME)
+        if os.path.exists(exe_path):
+            self.lbl_status_val.config(text="ĐÃ CÀI ĐẶT", fg="green")
+            self.btn_install.config(text="Cập nhật lại")
+            self.btn_uninstall.state(['!disabled'])
         else:
-            print_message(f"  - Không thể xóa tác vụ lên lịch '{SCHEDULED_TASK_NAME}': {result.stderr.strip()}", indent=4, color=Fore.YELLOW)
-    except Exception as e:
-        print_message(f"  - Lỗi khi cố gắng xóa tác vụ lên lịch '{SCHEDULED_TASK_NAME}': {e}", indent=4, color=Fore.YELLOW)
+            self.lbl_status_val.config(text="CHƯA CÀI ĐẶT", fg="#e74c3c")
+            self.btn_install.config(text="Cài đặt ngay")
+            self.btn_uninstall.state(['disabled'])
 
-    print_message(f"Đang xóa tệp cấu hình khỏi System32...", indent=4, color=Fore.WHITE)
-    SYSTEM32_CONFIG_PATH = "C:\\Windows\\System32\\config.json"
-    if os.path.exists(SYSTEM32_CONFIG_PATH):
+    def log(self, message, level="INFO"):
+        self.log_area.config(state='normal')
+        self.log_area.insert(tk.END, f"[{level}] {message}\n", level)
+        self.log_area.see(tk.END)
+        self.log_area.config(state='disabled')
+
+    def toggle_buttons(self, state):
+        s = 'normal' if state else 'disabled'
+        self.btn_install.config(state=s)
+        self.btn_uninstall.config(state=s)
+        self.btn_exit.config(state=s)
+
+    # --- LOGIC CÀI ĐẶT ---
+    def start_install_thread(self):
+        self.toggle_buttons(False)
+        self.log_area.config(state='normal')
+        self.log_area.delete(1.0, tk.END)
+        self.log_area.config(state='disabled')
+        threading.Thread(target=self.run_install, daemon=True).start()
+
+    def run_install(self):
         try:
-            os.remove(SYSTEM32_CONFIG_PATH)
-            print_message(f"  - Đã xóa tệp cấu hình", indent=4, color=Fore.GREEN)
-        except OSError as e:
-            print_message(f"  - Lỗi khi xóa tệp cấu hình {SYSTEM32_CONFIG_PATH}: {e}", indent=4, color=Fore.RED)
-            print_message(f"  - Vui lòng đảm bảo bạn có quyền xóa tệp tại {SYSTEM32_CONFIG_PATH}.", indent=4, color=Fore.YELLOW)
-    else:
-        print_message(f"  - Tệp cấu hình {SYSTEM32_CONFIG_PATH} không tồn tại. Không cần xóa.", indent=4, color=Fore.WHITE)
+            self.log(f"Bắt đầu setup v{VERSION}...", "INFO")
+            
+            self.log("Dừng ứng dụng cũ...", "INFO")
+            subprocess.run(['taskkill', '/f', '/im', EXE_NAME], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            
+            for path in [INSTALL_DIR, CONFIG_DIR, SCAN_DIR]:
+                if not os.path.exists(path):
+                    os.makedirs(path)
+                    self.log(f"Tạo: {path}", "INFO")
 
-    print_message(f"Đang xóa thư mục cài đặt...", indent=4, color=Fore.WHITE)
-    if os.path.exists(INSTALL_DIR):
-        max_retries = 5
-        for i in range(max_retries):
+            self.log("Cấp quyền Users...", "INFO")
             try:
-                shutil.rmtree(INSTALL_DIR)
-                print_message(f"  - Đã xóa thư mục cài đặt: {INSTALL_DIR}", indent=4, color=Fore.GREEN)
-                break # Exit loop if successful
-            except OSError as e:
-                if i < max_retries - 1:
-                    print_message(f"  - Thử lại xóa thư mục ({i+1}/{max_retries}): {e}. Đang chờ...", indent=4, color=Fore.YELLOW)
-                    time.sleep(1) # Wait before retrying
-                else:
-                    print_message(f"  - Lỗi khi xóa thư mục {INSTALL_DIR} sau {max_retries} lần thử: {e}. Vui lòng đảm bảo không có tệp nào đang được sử dụng.", indent=4, color=Fore.RED)
-    else:
-        print_message(f"  - Thư mục cài đặt {INSTALL_DIR} không tồn tại.", indent=4, color=Fore.YELLOW)
+                subprocess.run(['icacls', CONFIG_DIR, '/grant', 'Users:(OI)(CI)F', '/T', '/C'], 
+                               capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                subprocess.run(['icacls', SCAN_DIR, '/grant', 'Users:(OI)(CI)F', '/T', '/C'], 
+                               capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            except: pass
 
-    print_separator(color=Fore.GREEN)
-    print_message(f"Gỡ cài đặt {APP_NAME} hoàn tất!", indent=4, color=Fore.GREEN)
-    print_separator(color=Fore.GREEN)
+            self.log("Copy file hệ thống...", "INFO")
+            if getattr(sys, 'frozen', False):
+                src = os.path.join(sys._MEIPASS, EXE_NAME)
+            else:
+                src = os.path.join(os.path.dirname(os.path.abspath(__file__)), EXE_NAME)
+            
+            if os.path.exists(src):
+                shutil.copy2(src, os.path.join(INSTALL_DIR, EXE_NAME))
+                self.log("Copy file OK.", "SUCCESS")
+            else:
+                self.log(f"Lỗi: Thiếu {EXE_NAME}", "ERROR")
+                return
 
-def main():
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "install":
-            install_app()
-        elif sys.argv[1] == "uninstall":
-            uninstall_app()
-        else:
-            print(f"{Fore.RED}Đối số không hợp lệ. Sử dụng 'install' hoặc 'uninstall'.{Style.RESET_ALL}")
-        return
+            self.log("Cấu hình Firewall (2121)...", "INFO")
+            try:
+                subprocess.run('netsh advfirewall firewall delete rule name="mFTP Server (TCP)"', 
+                               shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                subprocess.run('netsh advfirewall firewall delete rule name="mFTP Server (UDP)"', 
+                               shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                subprocess.run('netsh advfirewall firewall add rule name="mFTP Server (TCP)" dir=in action=allow protocol=TCP localport=2121', 
+                               shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                subprocess.run('netsh advfirewall firewall add rule name="mFTP Server (UDP)" dir=in action=allow protocol=UDP localport=2121', 
+                               shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            except: pass
 
-    while True:
-        print_separator(char='=', color=Fore.LIGHTGREEN_EX)
-        print_title(f"{APP_NAME} TRÌNH CÀI ĐẶT", color=Fore.LIGHTGREEN_EX)
-        print_separator(char='=', color=Fore.LIGHTGREEN_EX)
-        print_message("1. Cài đặt / Cập nhật", indent=4, color=Fore.WHITE)
-        print_message("2. Gỡ cài đặt", indent=4, color=Fore.WHITE)
-        print_message("3. Thoát", indent=4, color=Fore.WHITE)
-        print_separator(char='-', color=Fore.LIGHTGREEN_EX)
+            self.log("Đăng ký Startup...", "INFO")
+            try:
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, REG_PATH, 0, winreg.KEY_SET_VALUE)
+                cmd = f'"{os.path.join(INSTALL_DIR, EXE_NAME)}" -minimized'
+                winreg.SetValueEx(key, REG_NAME, 0, winreg.REG_SZ, cmd)
+                winreg.CloseKey(key)
+            except Exception as e:
+                self.log(f"Lỗi Reg: {e}", "ERROR")
 
-        choice = input(f"{Fore.MAGENTA}Chọn một tùy chọn: {Style.RESET_ALL}")
+            self.log("Khởi động Service...", "INFO")
+            subprocess.Popen([os.path.join(INSTALL_DIR, EXE_NAME)])
+            
+            self.log("CÀI ĐẶT HOÀN TẤT!", "SUCCESS")
+            messagebox.showinfo("mFTP Setup", f"Đã cài đặt mFTP Server v{VERSION} thành công!")
 
-        if choice == '1':
-            os.system('cls') # Clear screen before installation logs
-            install_app()
-        elif choice == '2':
-            os.system('cls') # Clear screen before uninstallation logs
-            uninstall_app()
-        elif choice == '3':
-            print_message("Đang thoát trình cài đặt.", indent=4, color=Fore.CYAN)
-            break
-        else:
-            print_message("Lựa chọn không hợp lệ. Vui lòng thử lại.", indent=4, color=Fore.RED)
+        except Exception as e:
+            self.log(f"Lỗi: {e}", "ERROR")
+        finally:
+            self.root.after(0, self.check_status)
+            self.toggle_buttons(True)
+
+    def start_uninstall_thread(self):
+        if not messagebox.askyesno("Gỡ cài đặt", "Xóa hoàn toàn mFTP Server khỏi máy tính?"):
+            return
+        self.toggle_buttons(False)
+        self.log_area.config(state='normal')
+        self.log_area.delete(1.0, tk.END)
+        self.log_area.config(state='disabled')
+        threading.Thread(target=self.run_uninstall, daemon=True).start()
+
+    def run_uninstall(self):
+        try:
+            self.log("Đang dừng Service...", "INFO")
+            subprocess.run(['taskkill', '/f', '/im', EXE_NAME], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+
+            self.log("Xóa Registry...", "INFO")
+            try:
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, REG_PATH, 0, winreg.KEY_SET_VALUE)
+                winreg.DeleteValue(key, REG_NAME)
+                winreg.CloseKey(key)
+            except: pass
+            
+            subprocess.run('netsh advfirewall firewall delete rule name="mFTP Server (TCP)"', 
+                           shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+
+            self.log("Xóa tập tin...", "INFO")
+            for path in [INSTALL_DIR, CONFIG_DIR]:
+                if os.path.exists(path):
+                    try:
+                        shutil.rmtree(path)
+                        self.log(f"Đã xóa: {path}", "SUCCESS")
+                    except:
+                        self.log(f"Lỗi xóa: {path}", "WARN")
+            
+            self.log("ĐÃ GỠ CÀI ĐẶT!", "SUCCESS")
+            messagebox.showinfo("mFTP Setup", "Đã gỡ bỏ phần mềm.")
+
+        except Exception as e:
+            self.log(f"Lỗi: {e}", "ERROR")
+        finally:
+            self.root.after(0, self.check_status)
+            self.toggle_buttons(True)
 
 if __name__ == "__main__":
-    main()
+    if not is_admin():
+        run_as_admin()
+    else:
+        root = tk.Tk()
+        app = InstallerGUI(root)
+        root.eval('tk::PlaceWindow . center')
+        root.mainloop()
